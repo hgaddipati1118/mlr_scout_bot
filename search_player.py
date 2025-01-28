@@ -179,6 +179,27 @@ def get_player_stealing_pas_by_id(player_id):
         pa[30], pa[31], pa[32]                  # pr2B, pr1B, prAB
     ) for pa in pas_data]
 
+def search_player_by_name(name):
+    """Search for a player by name and return their ID"""
+    conn = sqlite3.connect('baseball.db')
+    c = conn.cursor()
+    
+    # Search for players with similar names using LIKE
+    c.execute('''
+        SELECT playerID, playerName, team 
+        FROM players 
+        WHERE playerName LIKE ? 
+        LIMIT 1
+    ''', (f'%{name}%',))
+    
+    player = c.fetchone()
+    conn.close()
+    
+    if not player:
+        return None
+    
+    return player[0]
+
 if __name__ == '__main__':
     player_id = search_player()
     if player_id:

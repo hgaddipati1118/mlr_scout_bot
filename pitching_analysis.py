@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from search_player import get_player_pitching_pas_by_id, get_player_by_id
 from helpers import get_result_color, calculate_delta
+import statistics
 
 def get_pitch_distribution(player_id):
     """Returns distribution of pitches in 100-number buckets"""
@@ -42,20 +43,25 @@ def get_delta_history(player_id):
     return deltas
 
 def get_delta_distribution(player_id):
-    """Returns distribution of deltas in 100-number buckets from -499 to 500"""
+    """Returns distribution of deltas in 50-number buckets from -450 to 500"""
     deltas = get_delta_history(player_id)
     buckets = defaultdict(int)
     
-    # Initialize buckets from -499 to 500 in steps of 100
-    for i in range(-499, 501, 100):
+    # Initialize buckets from -450 to 450 in steps of 50, plus special 451-500 bucket
+    for i in range(-450, 451, 50):
         buckets[i] = 0
+    buckets[451] = 0  # Special bucket for 451-500
     
     for delta in deltas:
-        # Round to nearest 100, but offset by -49 to get -499 start
-        bucket = ((delta + 49) // 100) * 100 - 49
-        # Clamp to our range
-        bucket = max(-499, min(401, bucket))  # 401 is the start of the last bucket (401-500)
-        buckets[bucket] += 1
+        if delta > 450:
+            # Special case for 451-500
+            buckets[451] += 1
+        else:
+            # Round to nearest 50
+            bucket = (delta // 50) * 50
+            # Clamp to our range
+            bucket = max(-450, min(450, bucket))
+            buckets[bucket] += 1
     
     total = sum(buckets.values())
     if total == 0:
@@ -66,17 +72,19 @@ def get_delta_distribution(player_id):
 def plot_distributions(player_id):
     player = get_player_by_id(player_id)
     if not player:
-        return
+        return None
     
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
     fig.suptitle(f'Pitching Distributions for {player.playerName}')
     
-    # Pitch distribution
+    # Get distributions
     dist = get_pitch_distribution(player_id)
+    delta_dist = get_delta_distribution(player_id)
+    
+    # Plot pitch distribution
     buckets = list(dist.keys())
     percentages = list(dist.values())
-    
     ax1.bar(buckets, percentages, width=80)
     ax1.set_title('Pitch Distribution')
     ax1.set_xlabel('Pitch Range')
@@ -84,29 +92,30 @@ def plot_distributions(player_id):
     ax1.set_xticks(buckets)
     ax1.set_xticklabels([f'{b+1}-{b+100}' for b in buckets], rotation=45)
     
-    # Delta distribution
-    dist = get_delta_distribution(player_id)
-    buckets = list(dist.keys())
-    percentages = list(dist.values())
-    
-    ax2.bar(buckets, percentages, width=80)
+    # Plot delta distribution
+    buckets = list(delta_dist.keys())
+    percentages = list(delta_dist.values())
+    ax2.bar(buckets, percentages, width=40)
     ax2.set_title('Delta Distribution')
     ax2.set_xlabel('Delta Range')
     ax2.set_ylabel('Percentage')
     ax2.set_xticks(buckets)
     ax2.set_xticklabels([
-        f'{b}-{b+99}' if b != 401 else f'{b}-500' 
+        f'{b} to {b+49}' if b != 451 else '451 to 500'
         for b in buckets
     ], rotation=45)
     
+    # Add gridlines for better readability
+    ax2.grid(True, alpha=0.3)
+    
     plt.tight_layout()
-    plt.show()
+    return fig
 
 def plot_game_sequences_overlay(player_id, num_games=5):
     """Plot pitch sequences for the last N games overlaid on one plot"""
     player = get_player_by_id(player_id)
     if not player:
-        return
+        return None
     
     pas = get_player_pitching_pas_by_id(player_id)
     
@@ -119,8 +128,11 @@ def plot_game_sequences_overlay(player_id, num_games=5):
     # Sort games by most recent and take last N
     sorted_games = sorted(games.items(), key=lambda x: max(pa.paID for pa in x[1]), reverse=True)[:num_games]
     
+    if not sorted_games:
+        return None
+    
     # Create figure
-    plt.figure(figsize=(15, 8))
+    fig = plt.figure(figsize=(15, 8))
     plt.title(f'Game Sequences Overlay for {player.playerName} (Last {num_games} Games)')
     
     # Different colors for each game
@@ -136,6 +148,9 @@ def plot_game_sequences_overlay(player_id, num_games=5):
         
         # Get pitches and their order numbers
         pitches = [pa.pitch for pa in game_pas if pa.pitch is not None]
+        if not pitches:  # Skip if no pitches
+            continue
+            
         pitch_numbers = range(1, len(pitches) + 1)
         max_pitches = max(max_pitches, len(pitches))
         
@@ -158,7 +173,7 @@ def plot_game_sequences_overlay(player_id, num_games=5):
     plt.legend()
     
     plt.tight_layout()
-    plt.show()
+    return fig  # Return figure instead of closing
 
 def print_game_sequences(player_id, num_games=5):
     """Print pitch sequences for the last N games"""
@@ -288,11 +303,45 @@ def get_delta_delta_distribution(player_id):
     
     return matrix
 
+def get_diff_delta_distribution(player_id):
+    """Returns distribution of deltas following specific diffs"""
+    pas = get_player_pitching_pas_by_id(player_id)
+    sorted_pas = sorted(pas, key=lambda x: (x.gameID, x.paID))
+    
+    # Create a 10x10 matrix for ranges
+    matrix = np.zeros((10, 10))
+    
+    for i in range(len(sorted_pas)-2):  # Need 3 PAs to get delta after diff
+        pa1 = sorted_pas[i]
+        pa2 = sorted_pas[i+1]
+        pa3 = sorted_pas[i+2]
+        
+        # Only consider consecutive PAs in same game
+        if (pa1.gameID == pa2.gameID == pa3.gameID and 
+            pa1.diff is not None and pa2.pitch is not None and pa3.pitch is not None):
+            
+            # Get diff bucket (0-500 in steps of 50)
+            diff_bucket = (pa1.diff // 50)
+            diff_bucket = max(0, min(9, diff_bucket))
+            
+            # Calculate and bucket the delta
+            delta = calculate_delta(pa2.pitch, pa3.pitch)
+            delta_bucket = ((delta + 499) // 100)
+            delta_bucket = max(0, min(9, delta_bucket))
+            
+            matrix[diff_bucket][delta_bucket] += 1
+    
+    # Convert to percentages by row
+    row_sums = matrix.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1  # Avoid division by zero
+    matrix = (matrix / row_sums) * 100
+    
+    return matrix
+
 def plot_matrices(player_id):
-    """Plot all distribution matrices"""
     player = get_player_by_id(player_id)
     if not player:
-        return
+        return None
         
     # Create figure with 2x2 subplots
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
@@ -353,16 +402,31 @@ def plot_matrices(player_id):
     ax3.set_xticklabels(delta_ranges, rotation=45, ha='right')
     ax3.set_yticklabels(delta_ranges)
     
+    # Diff to Next Delta
+    matrix = get_diff_delta_distribution(player_id)
+    im4 = ax4.imshow(matrix, cmap='YlOrRd')
+    ax4.set_title('Previous Diff to Next Delta')
+    ax4.set_xlabel('Next Delta Range')
+    ax4.set_ylabel('Previous Diff Range')
+    
+    # Add numbers to cells
+    for i in range(10):
+        for j in range(10):
+            ax4.text(j, i, f'{matrix[i, j]:.0f}', ha='center', va='center')
+    
+    ax4.set_xticks(range(10))
+    ax4.set_yticks(range(10))
+    ax4.set_xticklabels(delta_ranges, rotation=45, ha='right')
+    ax4.set_yticklabels(diff_ranges)
+    
     # Add colorbars
     plt.colorbar(im1, ax=ax1, label='Percentage')
     plt.colorbar(im2, ax=ax2, label='Percentage')
     plt.colorbar(im3, ax=ax3, label='Percentage')
-    
-    # Remove the empty subplot
-    ax4.remove()
+    plt.colorbar(im4, ax=ax4, label='Percentage')
     
     plt.tight_layout()
-    plt.show()
+    return fig
 
 def get_first_pitches(player_id):
     """Returns list of first pitches in each game"""
@@ -384,14 +448,13 @@ def get_first_pitches(player_id):
     return first_pitches
 
 def plot_first_pitch_trends(player_id):
-    """Plot first pitch distribution and history"""
     player = get_player_by_id(player_id)
     if not player:
-        return
+        return None
     
     first_pitches = get_first_pitches(player_id)
     if not first_pitches:
-        return
+        return None
     
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
@@ -433,7 +496,7 @@ def plot_first_pitch_trends(player_id):
                     xytext=(0,10), ha='center')
     
     plt.tight_layout()
-    plt.show()
+    return fig  # Return figure instead of closing
 
 def print_first_pitch_stats(player_id):
     """Print statistics about first pitches"""
@@ -453,6 +516,109 @@ def print_first_pitch_stats(player_id):
     print("\nLast 5 first pitches:")
     for i, pitch in enumerate(first_pitches[-5:], 1):
         print(f"{i}. {pitch}")
+
+def predict_next_pitch(player_id, prev_pitch=None, prev_diff=None):
+    """Predict next pitch based on previous patterns using sliding windows"""
+    pas = get_player_pitching_pas_by_id(player_id)
+    sorted_pas = sorted(pas, key=lambda x: (x.gameID, x.paID))
+    
+    # Get sequences of 3 consecutive pitches
+    pitch_sequences = []
+    diff_sequences = []
+    
+    for i in range(len(sorted_pas)-2):
+        pa1, pa2, pa3 = sorted_pas[i:i+3]
+        
+        # Only consider consecutive PAs in same game
+        if (pa1.gameID == pa2.gameID == pa3.gameID):
+            if all(pa.pitch is not None for pa in [pa1, pa2, pa3]):
+                pitch_sequences.append((pa1.pitch, pa2.pitch, pa3.pitch))
+            if pa1.diff is not None and all(pa.pitch is not None for pa in [pa2, pa3]):
+                diff_sequences.append((pa1.diff, pa2.pitch, pa3.pitch))
+    
+    if not pitch_sequences and not diff_sequences:
+        return None, 0, 0  # No data to predict from
+    
+    # Calculate weights based on patterns
+    weights = defaultdict(float)
+    total_weight = 0
+    
+    if prev_pitch is not None and len(pitch_sequences) > 0:
+        # Weight based on previous pitch patterns
+        for idx, (p1, p2, p3) in enumerate(pitch_sequences):
+            # More weight for:
+            # 1. Similar previous pitches
+            # 2. More recent sequences
+            recency_weight = 1 + (idx / len(pitch_sequences))  # Newer sequences get higher weight
+            similarity = 1 / (abs(p2 - prev_pitch) + 1)  # How close the previous pitch is
+            sequence_weight = recency_weight * similarity
+            
+            weights[p3] += sequence_weight
+            total_weight += sequence_weight
+    
+    if prev_diff is not None and len(diff_sequences) > 0:
+        # Weight based on previous diff patterns
+        for idx, (d1, p2, p3) in enumerate(diff_sequences):
+            # More weight for:
+            # 1. Similar diffs
+            # 2. More recent sequences
+            recency_weight = 1 + (idx / len(diff_sequences))
+            similarity = 1 / (abs(d1 - prev_diff) + 1)
+            sequence_weight = recency_weight * similarity
+            
+            weights[p3] += sequence_weight
+            total_weight += sequence_weight
+    
+    if total_weight == 0:
+        # If no weights, use overall distribution with recency weighting
+        all_sequences = [(pa1.pitch, pa2.pitch, pa3.pitch) 
+                        for pa1, pa2, pa3 in zip(sorted_pas[:-2], sorted_pas[1:-1], sorted_pas[2:])
+                        if pa1.gameID == pa2.gameID == pa3.gameID 
+                        and all(pa.pitch is not None for pa in [pa1, pa2, pa3])]
+        
+        if not all_sequences:
+            return None, 0, 0
+            
+        # Weight by recency
+        weighted_sum = 0
+        total_weight = 0
+        for idx, (_, _, pitch) in enumerate(all_sequences):
+            weight = 1 + (idx / len(all_sequences))
+            weighted_sum += pitch * weight
+            total_weight += weight
+            
+        prediction = weighted_sum / total_weight
+        confidence = 0.1  # Low confidence for fallback prediction
+        sample_size = len(all_sequences)
+    else:
+        # Calculate weighted average
+        prediction = sum(pitch * (weight/total_weight) 
+                       for pitch, weight in weights.items())
+        
+        # Calculate confidence based on:
+        # 1. Sample size
+        # 2. Pattern strength (how concentrated the weights are)
+        # 3. Consistency of predictions
+        sample_size = len(pitch_sequences) + len(diff_sequences)
+        pattern_strength = max(weights.values()) / total_weight
+        
+        # Calculate variance of top predictions
+        top_predictions = sorted(weights.items(), key=lambda x: x[1], reverse=True)[:3]
+        if len(top_predictions) >= 2:
+            variance = statistics.variance(p[0] for p in top_predictions)
+            consistency = 1 / (1 + (variance / 1000))  # Normalize variance
+        else:
+            consistency = 0.5
+        
+        confidence = min(0.95, 
+                       (sample_size/100) *  # More samples = higher confidence
+                       pattern_strength *    # Stronger pattern = higher confidence
+                       consistency)         # More consistent predictions = higher confidence
+    
+    # Round prediction to nearest 10 to avoid overly specific predictions
+    prediction = round(prediction / 10) * 10
+    
+    return prediction, confidence, sample_size
 
 if __name__ == '__main__':
     from search_player import search_player

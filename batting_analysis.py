@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from search_player import get_player_batting_pas_by_id, get_player_by_id
 from helpers import get_result_color, calculate_delta
+import statistics
+from getData import PlateAppearance
 
 def get_swing_distribution(player_id):
     """Returns distribution of swings in 200-number buckets"""
@@ -62,20 +64,25 @@ def get_first_swings(player_id):
     return first_swings
 
 def get_delta_distribution(player_id):
-    """Returns distribution of deltas in 100-number buckets from -499 to 500"""
+    """Returns distribution of deltas in 50-number buckets from -450 to 500"""
     deltas = get_delta_history(player_id)
     buckets = defaultdict(int)
     
-    # Initialize buckets from -499 to 500 in steps of 100
-    for i in range(-499, 501, 100):
+    # Initialize buckets from -450 to 450 in steps of 50, plus special 451-500 bucket
+    for i in range(-450, 451, 50):
         buckets[i] = 0
+    buckets[451] = 0  # Special bucket for 451-500
     
     for delta in deltas:
-        # Round to nearest 100, but offset by -49 to get -499 start
-        bucket = ((delta + 49) // 100) * 100 - 49
-        # Clamp to our range
-        bucket = max(-499, min(401, bucket))  # 401 is the start of the last bucket (401-500)
-        buckets[bucket] += 1
+        if delta > 450:
+            # Special case for 451-500
+            buckets[451] += 1
+        else:
+            # Round to nearest 50
+            bucket = (delta // 50) * 50
+            # Clamp to our range
+            bucket = max(-450, min(450, bucket))
+            buckets[bucket] += 1
     
     total = sum(buckets.values())
     if total == 0:
@@ -86,43 +93,49 @@ def get_delta_distribution(player_id):
 def plot_distributions(player_id):
     player = get_player_by_id(player_id)
     if not player:
-        return
+        return None
     
-    # Create figure with two subplots
+    # Debug prints
+    print(f"\nPlotting distributions for {player.playerName}")
+    
+    # Get distributions
+    dist = get_swing_distribution(player_id)
+    delta_dist = get_delta_distribution(player_id)
+    print(f"Swing distribution: {dist}")
+    print(f"Delta distribution: {delta_dist}")
+    
+    # Create figure
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
     fig.suptitle(f'Distributions for {player.playerName}')
     
-    # Swing distribution
-    dist = get_swing_distribution(player_id)
+    # Plot swing distribution
     buckets = list(dist.keys())
     percentages = list(dist.values())
-    
-    # Make bars wider by adjusting width parameter
-    ax1.bar(buckets, percentages, width=80)  # Wider bars
+    ax1.bar(buckets, percentages, width=80)
     ax1.set_title('Swing Distribution')
     ax1.set_xlabel('Swing Range')
     ax1.set_ylabel('Percentage')
     ax1.set_xticks(buckets)
     ax1.set_xticklabels([f'{b+1}-{b+100}' for b in buckets], rotation=45)
     
-    # Delta distribution
-    dist = get_delta_distribution(player_id)
-    buckets = list(dist.keys())
-    percentages = list(dist.values())
-    
-    # Make bars wider by adjusting width parameter
-    ax2.bar(buckets, percentages, width=80)  # Wider bars
+    # Plot delta distribution
+    buckets = list(delta_dist.keys())
+    percentages = list(delta_dist.values())
+    ax2.bar(buckets, percentages, width=40)  # Reduced width since buckets are smaller
     ax2.set_title('Delta Distribution')
     ax2.set_xlabel('Delta Range')
     ax2.set_ylabel('Percentage')
     ax2.set_xticks(buckets)
     ax2.set_xticklabels([
-        f'{b}-{b+99}' if b != 500 else f'{b}' 
+        f'{b} to {b+49}' if b != 451 else '451 to 500'
         for b in buckets
     ], rotation=45)
     
+    # Add gridlines for better readability
+    ax2.grid(True, alpha=0.3)
+    
     plt.tight_layout()
-    plt.show()
+    return fig  # Return the figure instead of closing it
 
 def print_distributions(player_id):
     player = get_player_by_id(player_id)
@@ -198,7 +211,7 @@ def plot_histories(player_id):
     ax2.set_xticks([])
     
     plt.tight_layout()
-    plt.show()
+    plt.close()
 
 def get_diff_swing_distribution(player_id):
     """Returns distribution of swings following specific diffs (0-500)"""
@@ -263,7 +276,7 @@ def plot_diff_swing_matrix(player_id):
     
     plt.colorbar(label='Percentage')
     plt.tight_layout()
-    plt.show()
+    plt.close()
 
 def print_histories(player_id):
     player = get_player_by_id(player_id)
@@ -384,7 +397,7 @@ def plot_swing_swing_matrix(player_id):
     
     plt.colorbar(label='Percentage')
     plt.tight_layout()
-    plt.show()
+    plt.close()
 
 def plot_delta_delta_matrix(player_id):
     player = get_player_by_id(player_id)
@@ -415,7 +428,7 @@ def plot_delta_delta_matrix(player_id):
     
     plt.colorbar(label='Percentage')
     plt.tight_layout()
-    plt.show()
+    plt.close()
 
 def plot_game_sequences(player_id, num_games=5):
     """Plot swing sequences for the last N games"""
@@ -466,7 +479,7 @@ def plot_game_sequences(player_id, num_games=5):
         axes[idx].set_xlabel('Swing Order in Game')
     
     plt.tight_layout()
-    plt.show()
+    plt.close()
 
 def print_game_sequences(player_id, num_games=5):
     """Print swing sequences for the last N games"""
@@ -500,7 +513,7 @@ def plot_game_sequences_overlay(player_id, num_games=5):
     """Plot swing sequences for the last N games overlaid on one plot"""
     player = get_player_by_id(player_id)
     if not player:
-        return
+        return None
     
     pas = get_player_batting_pas_by_id(player_id)
     
@@ -513,8 +526,11 @@ def plot_game_sequences_overlay(player_id, num_games=5):
     # Sort games by most recent and take last N
     sorted_games = sorted(games.items(), key=lambda x: max(pa.paID for pa in x[1]), reverse=True)[:num_games]
     
+    if not sorted_games:
+        return None
+    
     # Create figure
-    plt.figure(figsize=(15, 8))
+    fig = plt.figure(figsize=(15, 8))
     plt.title(f'Game Sequences Overlay for {player.playerName} (Last {num_games} Games)')
     
     # Different colors for each game
@@ -530,6 +546,9 @@ def plot_game_sequences_overlay(player_id, num_games=5):
         
         # Get swings and their order numbers
         swings = [pa.swing for pa in game_pas if pa.swing is not None]
+        if not swings:  # Skip if no swings
+            continue
+            
         swing_numbers = range(1, len(swings) + 1)
         max_swings = max(max_swings, len(swings))
         
@@ -552,7 +571,243 @@ def plot_game_sequences_overlay(player_id, num_games=5):
     plt.legend()
     
     plt.tight_layout()
-    plt.show()
+    return fig  # Return the figure instead of closing it
+
+def plot_matrices(player_id):
+    """Plot all distribution matrices"""
+    player = get_player_by_id(player_id)
+    if not player:
+        return None
+        
+    # Create figure with 2x2 subplots
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
+    fig.suptitle(f'Pattern Analysis for {player.playerName}')
+    
+    # Diff to Next Swing
+    matrix = get_diff_swing_distribution(player_id)
+    im1 = ax1.imshow(matrix, cmap='YlOrRd')
+    ax1.set_title('Previous Diff to Next Swing')
+    ax1.set_xlabel('Next Swing Range')
+    ax1.set_ylabel('Previous Diff Range')
+    
+    # Add numbers to cells
+    for i in range(10):
+        for j in range(10):
+            ax1.text(j, i, f'{matrix[i, j]:.0f}', ha='center', va='center')
+    
+    # Labels
+    diff_ranges = [f'{i*50}-{(i+1)*50-1}' for i in range(10)]
+    swing_ranges = [f'{i*100+1}-{(i+1)*100}' for i in range(10)]
+    ax1.set_xticks(range(10))
+    ax1.set_yticks(range(10))
+    ax1.set_xticklabels(swing_ranges, rotation=45, ha='right')
+    ax1.set_yticklabels(diff_ranges)
+    
+    # Swing to Next Swing
+    matrix = get_swing_swing_distribution(player_id)
+    im2 = ax2.imshow(matrix, cmap='YlOrRd')
+    ax2.set_title('Previous Swing to Next Swing')
+    ax2.set_xlabel('Next Swing Range')
+    ax2.set_ylabel('Previous Swing Range')
+    
+    # Add numbers to cells
+    for i in range(10):
+        for j in range(10):
+            ax2.text(j, i, f'{matrix[i, j]:.0f}', ha='center', va='center')
+    
+    ax2.set_xticks(range(10))
+    ax2.set_yticks(range(10))
+    ax2.set_xticklabels(swing_ranges, rotation=45, ha='right')
+    ax2.set_yticklabels(swing_ranges)
+    
+    # Delta to Delta
+    matrix = get_delta_delta_distribution(player_id)
+    im3 = ax3.imshow(matrix, cmap='YlOrRd')
+    ax3.set_title('Previous Delta to Next Delta')
+    ax3.set_xlabel('Next Delta Range')
+    ax3.set_ylabel('Previous Delta Range')
+    
+    # Add numbers to cells
+    for i in range(10):
+        for j in range(10):
+            ax3.text(j, i, f'{matrix[i, j]:.0f}', ha='center', va='center')
+    
+    delta_ranges = [f'{-499+i*100}-{-400+i*100}' for i in range(10)]
+    ax3.set_xticks(range(10))
+    ax3.set_yticks(range(10))
+    ax3.set_xticklabels(delta_ranges, rotation=45, ha='right')
+    ax3.set_yticklabels(delta_ranges)
+    
+    # Add colorbars
+    plt.colorbar(im1, ax=ax1, label='Percentage')
+    plt.colorbar(im2, ax=ax2, label='Percentage')
+    plt.colorbar(im3, ax=ax3, label='Percentage')
+    
+    # Remove the empty subplot
+    ax4.remove()
+    
+    plt.tight_layout()
+    return fig  # Return the figure instead of closing it
+
+def predict_next_swing(player_id, prev_swing=None, prev_diff=None):
+    """Predict next swing based on player and team patterns using sliding windows"""
+    pas = get_player_batting_pas_by_id(player_id)
+    player = get_player_by_id(player_id)
+    if not player or not player.Team:
+        return None, 0, 0
+        
+    # Get all team PAs
+    conn = sqlite3.connect('baseball.db')
+    c = conn.cursor()
+    c.execute('''
+        SELECT 
+            pa.paID, pa.gameID, pa.inning, pa.outs, pa.pitcherID, pa.hitterID,
+            pa.pitch, pa.swing, pa.diff, pa.result, pa.exactResult, pa.oldResult,
+            pa.pitchType, pa.pitchSpeed, pa.pitchMovement, pa.pitchLocation,
+            pa.pitchSpin, pa.pitchAngle, pa.pitchConfidence, pa.batterTiming,
+            pa.batterContact, pa.batterPower, pa.batterEye, pa.batterConfidence,
+            pa.inningScore, pa.gameScore, pa.leverageIndex, pa.weather,
+            pa.stadium, pa.temperature, pa.windSpeed, pa.windDirection,
+            pa.humidity, pa.fieldCondition
+        FROM plate_appearances pa
+        JOIN players p ON pa.hitterID = p.playerID
+        WHERE p.Team = ? AND pa.hitterID != ?
+        ORDER BY pa.paID
+    ''', (player.Team, player_id))
+    team_pas = [PlateAppearance(*row) for row in c.fetchall()]
+    conn.close()
+    
+    # Sort PAs chronologically
+    sorted_player_pas = sorted(pas, key=lambda x: x.paID)
+    sorted_team_pas = sorted(team_pas, key=lambda x: x.paID)
+    
+    # Get sequences of 3 consecutive swings
+    player_sequences = []
+    team_sequences = []
+    diff_sequences = []
+    
+    # Get player sequences
+    for i in range(len(sorted_player_pas)-2):
+        pa1, pa2, pa3 = sorted_player_pas[i:i+3]
+        
+        if (pa1.gameID == pa2.gameID == pa3.gameID):
+            if all(pa.swing is not None for pa in [pa1, pa2, pa3]):
+                player_sequences.append((pa1.swing, pa2.swing, pa3.swing))
+            if pa1.diff is not None and all(pa.swing is not None for pa in [pa2, pa3]):
+                diff_sequences.append((pa1.diff, pa2.swing, pa3.swing))
+    
+    # Get team sequences (from other players)
+    for i in range(len(sorted_team_pas)-2):
+        pa1, pa2, pa3 = sorted_team_pas[i:i+3]
+        
+        if (pa1.gameID == pa2.gameID == pa3.gameID and 
+            pa1.hitterID == pa2.hitterID == pa3.hitterID):  # Same player within team
+            if all(pa.swing is not None for pa in [pa1, pa2, pa3]):
+                team_sequences.append((pa1.swing, pa2.swing, pa3.swing))
+    
+    if not player_sequences and not team_sequences and not diff_sequences:
+        return None, 0, 0
+    
+    # Calculate weights based on patterns
+    weights = defaultdict(float)
+    total_weight = 0
+    
+    if prev_swing is not None:
+        # Weight based on player's previous swing patterns
+        if player_sequences:
+            for idx, (s1, s2, s3) in enumerate(player_sequences):
+                # More weight for:
+                # 1. Similar previous swings
+                # 2. More recent sequences
+                # 3. Player's own patterns over team patterns
+                recency_weight = 1 + (idx / len(player_sequences))
+                similarity = 1 / (abs(s2 - prev_swing) + 1)
+                sequence_weight = recency_weight * similarity * 2  # Double weight for player's own patterns
+                
+                weights[s3] += sequence_weight
+                total_weight += sequence_weight
+        
+        # Weight based on team's patterns
+        if team_sequences:
+            for idx, (s1, s2, s3) in enumerate(team_sequences):
+                recency_weight = 1 + (idx / len(team_sequences))
+                similarity = 1 / (abs(s2 - prev_swing) + 1)
+                sequence_weight = recency_weight * similarity
+                
+                weights[s3] += sequence_weight
+                total_weight += sequence_weight
+    
+    if prev_diff is not None and diff_sequences:
+        # Weight based on previous diff patterns
+        for idx, (d1, s2, s3) in enumerate(diff_sequences):
+            recency_weight = 1 + (idx / len(diff_sequences))
+            similarity = 1 / (abs(d1 - prev_diff) + 1)
+            sequence_weight = recency_weight * similarity * 1.5  # 1.5x weight for diff patterns
+            
+            weights[s3] += sequence_weight
+            total_weight += sequence_weight
+    
+    if total_weight == 0:
+        # Use overall distribution with recency weighting
+        all_sequences = (
+            [(pa1.swing, pa2.swing, pa3.swing) 
+             for pa1, pa2, pa3 in zip(sorted_player_pas[:-2], sorted_player_pas[1:-1], sorted_player_pas[2:])
+             if pa1.gameID == pa2.gameID == pa3.gameID 
+             and all(pa.swing is not None for pa in [pa1, pa2, pa3])] +
+            [(pa1.swing, pa2.swing, pa3.swing)
+             for pa1, pa2, pa3 in zip(sorted_team_pas[:-2], sorted_team_pas[1:-1], sorted_team_pas[2:])
+             if pa1.gameID == pa2.gameID == pa3.gameID
+             and all(pa.swing is not None for pa in [pa1, pa2, pa3])]
+        )
+        
+        if not all_sequences:
+            return None, 0, 0
+            
+        # Weight by recency and player vs team
+        weighted_sum = 0
+        total_weight = 0
+        for idx, (_, _, swing) in enumerate(all_sequences):
+            weight = 1 + (idx / len(all_sequences))
+            weighted_sum += swing * weight
+            total_weight += weight
+            
+        prediction = weighted_sum / total_weight
+        confidence = 0.1
+        sample_size = len(all_sequences)
+    else:
+        # Calculate weighted average
+        prediction = sum(swing * (weight/total_weight) 
+                       for swing, weight in weights.items())
+        
+        # Calculate confidence based on:
+        # 1. Sample size (both player and team)
+        # 2. Pattern strength
+        # 3. Consistency of predictions
+        # 4. Ratio of player to team data
+        sample_size = len(player_sequences) + len(team_sequences) + len(diff_sequences)
+        pattern_strength = max(weights.values()) / total_weight
+        
+        # Calculate variance of top predictions
+        top_predictions = sorted(weights.items(), key=lambda x: x[1], reverse=True)[:3]
+        if len(top_predictions) >= 2:
+            variance = statistics.variance(p[0] for p in top_predictions)
+            consistency = 1 / (1 + (variance / 1000))
+        else:
+            consistency = 0.5
+            
+        # Calculate player data ratio
+        player_data_ratio = len(player_sequences) / (len(player_sequences) + len(team_sequences) + 0.1)
+        
+        confidence = min(0.95,
+                       (sample_size/100) *    # More samples = higher confidence
+                       pattern_strength *      # Stronger pattern = higher confidence
+                       consistency *          # More consistent predictions = higher confidence
+                       (0.5 + 0.5 * player_data_ratio))  # More player data = higher confidence
+    
+    # Round prediction to nearest 10
+    prediction = round(prediction / 10) * 10
+    
+    return prediction, confidence, sample_size
 
 if __name__ == '__main__':
     from search_player import search_player
@@ -567,4 +822,5 @@ if __name__ == '__main__':
         plot_delta_delta_matrix(player_id)
         plot_game_sequences(player_id)
         print_game_sequences(player_id)
-        plot_game_sequences_overlay(player_id) 
+        plot_game_sequences_overlay(player_id)
+        plot_matrices(player_id) 
